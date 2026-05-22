@@ -382,18 +382,18 @@ def aba_cadastro():
     
     with col1:
         st.subheader("👤 Dados do Usuário")
-        nome = st.text_input("Nome completo *", value=st.session_state.dados_app.get("usuario", {}).get("nome", ""))
-        email = st.text_input("E-mail *", value=st.session_state.dados_app.get("usuario", {}).get("email", ""))
-        telefone = st.text_input("Telefone", value=st.session_state.dados_app.get("usuario", {}).get("telefone", ""))
+        nome = st.text_input("Nome completo *", value=st.session_state.dados_app.get("usuario", {}).get("nome", ""), key="cad_nome")
+        email = st.text_input("E-mail *", value=st.session_state.dados_app.get("usuario", {}).get("email", ""), key="cad_email")
+        telefone = st.text_input("Telefone", value=st.session_state.dados_app.get("usuario", {}).get("telefone", ""), key="cad_telefone")
         
         st.subheader("📍 Endereço")
-        endereco = st.text_input("Logradouro", value=st.session_state.dados_app.get("usuario", {}).get("endereco", ""))
-        cidade = st.text_input("Cidade", value=st.session_state.dados_app.get("usuario", {}).get("cidade", ""))
-        estado = st.text_input("Estado (UF)", value=st.session_state.dados_app.get("usuario", {}).get("estado", ""))
+        endereco = st.text_input("Logradouro", value=st.session_state.dados_app.get("usuario", {}).get("endereco", ""), key="cad_endereco")
+        cidade = st.text_input("Cidade", value=st.session_state.dados_app.get("usuario", {}).get("cidade", ""), key="cad_cidade")
+        estado = st.text_input("Estado (UF)", value=st.session_state.dados_app.get("usuario", {}).get("estado", ""), key="cad_estado")
     
     with col2:
         st.subheader("🏠 Localização da Fazenda")
-        fazenda_nome = st.text_input("Nome da Fazenda *", value=st.session_state.dados_app.get("cadastro", {}).get("fazenda_nome", ""))
+        fazenda_nome = st.text_input("Nome da Fazenda *", value=st.session_state.dados_app.get("cadastro", {}).get("fazenda_nome", ""), key="cad_fazenda_nome")
         
         # ========== COORDENADAS EM GRAUS, MINUTOS E SEGUNDOS ==========
         st.markdown("**🗺️ Coordenadas Geográficas (Graus, Minutos, Segundos)**")
@@ -410,25 +410,25 @@ def aba_cadastro():
         st.markdown("**Latitude:**")
         col_lat1, col_lat2, col_lat3, col_lat4 = st.columns([1, 1, 1, 1])
         with col_lat1:
-            lat_graus_input = st.number_input("Graus", min_value=0, max_value=90, value=lat_graus, step=1)
+            lat_graus_input = st.number_input("Graus", min_value=0, max_value=90, value=lat_graus, step=1, key="cad_lat_graus")
         with col_lat2:
-            lat_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lat_minutos, step=1)
+            lat_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lat_minutos, step=1, key="cad_lat_minutos")
         with col_lat3:
-            lat_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=float(lat_segundos), step=0.01, format="%.2f")
+            lat_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=float(lat_segundos), step=0.01, format="%.2f", key="cad_lat_segundos")
         with col_lat4:
-            lat_direcao = st.selectbox("Direção", ["S", "N"], index=0 if lat_decimal < 0 else 1)
+            lat_direcao = st.selectbox("Direção", ["S", "N"], index=0 if lat_decimal < 0 else 1, key="cad_lat_direcao")
         
         # Longitude
         st.markdown("**Longitude:**")
         col_lon1, col_lon2, col_lon3, col_lon4 = st.columns([1, 1, 1, 1])
         with col_lon1:
-            lon_graus_input = st.number_input("Graus", min_value=0, max_value=180, value=lon_graus, step=1)
+            lon_graus_input = st.number_input("Graus", min_value=0, max_value=180, value=lon_graus, step=1, key="cad_lon_graus")
         with col_lon2:
-            lon_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lon_minutos, step=1)
+            lon_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lon_minutos, step=1, key="cad_lon_minutos")
         with col_lon3:
-            lon_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=float(lon_segundos), step=0.01, format="%.2f")
+            lon_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=float(lon_segundos), step=0.01, format="%.2f", key="cad_lon_segundos")
         with col_lon4:
-            lon_direcao = st.selectbox("Direção", ["O", "L"], index=0 if lon_decimal < 0 else 1)
+            lon_direcao = st.selectbox("Direção", ["O", "L"], index=0 if lon_decimal < 0 else 1, key="cad_lon_direcao")
         
         # Converter GMS de volta para decimal para salvar
         fazenda_lat = gms_para_decimal(lat_graus_input, lat_minutos_input, lat_segundos_input, lat_direcao)
@@ -438,23 +438,24 @@ def aba_cadastro():
         st.caption(f"📍 Coordenadas decimais: {fazenda_lat:.6f}, {fazenda_lon:.6f}")
         
         st.subheader("💧 Corpo Hídrico")
-        corpo_nome = st.text_input("Nome do Rio/Lago/Represa *", value=st.session_state.dados_app.get("cadastro", {}).get("corpo_nome", ""))
+        corpo_nome = st.text_input("Nome do Rio/Lago/Represa *", value=st.session_state.dados_app.get("cadastro", {}).get("corpo_nome", ""), key="cad_corpo_nome")
         corpo_tipo = st.selectbox("Tipo de corpo hídrico", ["Rio", "Lago", "Represa", "Córrego", "Outro"], 
                                   index=["Rio", "Lago", "Represa", "Córrego", "Outro"].index(
-                                      st.session_state.dados_app.get("cadastro", {}).get("corpo_tipo", "Rio")))
+                                      st.session_state.dados_app.get("cadastro", {}).get("corpo_tipo", "Rio")),
+                                  key="cad_corpo_tipo")
     
     st.divider()
     
     # Status do cadastro
     if st.session_state.cadastro_completo:
         st.success("✅ **Cadastro já realizado!** Você tem acesso a todas as abas.")
-        if st.button("📝 Atualizar dados do cadastro", type="secondary"):
+        if st.button("📝 Atualizar dados do cadastro", type="secondary", key="btn_atualizar"):
             st.session_state.cadastro_completo = False
             st.rerun()
     
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
     with col_btn2:
-        if st.button("💾 Salvar Cadastro", type="primary"):
+        if st.button("💾 Salvar Cadastro", type="primary", key="btn_salvar_cadastro"):
             st.session_state.dados_app["usuario"] = {
                 "nome": nome, "email": email, "telefone": telefone,
                 "endereco": endereco, "cidade": cidade, "estado": estado
@@ -476,7 +477,6 @@ def aba_cadastro():
             else:
                 st.session_state.cadastro_completo = False
                 st.warning("⚠️ **Cadastro incompleto!** Preencha todos os campos com *.")
-
 
 # ============================================================
 # ABA 2 - ANÁLISES BÁSICAS
