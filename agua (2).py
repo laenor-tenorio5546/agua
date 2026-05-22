@@ -394,20 +394,19 @@ with col_lon1:
                             
     lon_graus_input = st.number_input("Graus", min_value=0, max_value=180, value=lon_graus, step=1, key="lon_graus")
                         
-    with col_lon2:
+with col_lon2:
                             
-        lon_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lon_minutos, step=1, key="lon_minutos")
+    lon_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lon_minutos, step=1, key="lon_minutos")
                         
-        with col_lon3:
+with col_lon3:
 # CORRIGIDO: value agora é int convertido para float
                             
-            lon_segundos_val = float(lon_segundos)
+    lon_segundos_val = float(lon_segundos)
                             
-            lon_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=lon_segundos_val, step=0.01, format="%.2f", key="lon_segundos")
+    lon_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=lon_segundos_val, step=0.01, format="%.2f", key="lon_segundos")
                        
-            with col_lon4:
-                            l
-                on_direcao = st.selectbox("Direção", ["O", "L"], index=0 if lon_decimal < 0 else 1, key="lon_direcao")
+with col_lon4:
+    lon_direcao = st.selectbox("Direção", ["O", "L"], index=0 if lon_decimal < 0 else 1, key="lon_direcao")
 
 
 # ============================================================================
