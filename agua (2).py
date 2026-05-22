@@ -354,7 +354,6 @@ def aba_cadastro():
     with col1:
         st.subheader("👤 Dados do Usuário")
         nome = st.text_input("Nome completo *", value=st.session_state.dados_app.get("usuario", {}).get("nome", ""))
-        cpf_cnpj = st.text_input("CPF/CNPJ", value=st.session_state.dados_app.get("usuario", {}).get("cpf_cnpj", ""))
         email = st.text_input("E-mail *", value=st.session_state.dados_app.get("usuario", {}).get("email", ""))
         telefone = st.text_input("Telefone", value=st.session_state.dados_app.get("usuario", {}).get("telefone", ""))
         
@@ -362,25 +361,14 @@ def aba_cadastro():
         endereco = st.text_input("Logradouro", value=st.session_state.dados_app.get("usuario", {}).get("endereco", ""))
         cidade = st.text_input("Cidade", value=st.session_state.dados_app.get("usuario", {}).get("cidade", ""))
         estado = st.text_input("Estado (UF)", value=st.session_state.dados_app.get("usuario", {}).get("estado", ""))
-        cep = st.text_input("CEP", value=st.session_state.dados_app.get("usuario", {}).get("cep", ""))
     
     with col2:
         st.subheader("🏠 Localização da Fazenda")
         fazenda_nome = st.text_input("Nome da Fazenda *", value=st.session_state.dados_app.get("cadastro", {}).get("fazenda_nome", ""))
-        fazenda_lat = st.number_input("Latitude (SIG BR - graus decimais) *", format="%.6f", 
+        fazenda_lat = st.number_input("Latitude *", format="%.6f", 
                                       value=float(st.session_state.dados_app.get("cadastro", {}).get("fazenda_lat", -15.0)))
-        fazenda_lon = st.number_input("Longitude (SIG BR - graus decimais) *", format="%.6f", 
+        fazenda_lon = st.number_input("Longitude *", format="%.6f", 
                                       value=float(st.session_state.dados_app.get("cadastro", {}).get("fazenda_lon", -45.0)))
-        
-        # Botão para testar estimativa de relevo
-        if st.button("🔍 Estimar relevo pelas coordenadas"):
-            with st.spinner("Consultando API de elevação..."):
-                relevo_estimado, elevacao = estimar_relevo_por_coordenadas(fazenda_lat, fazenda_lon)
-                if elevacao:
-                    st.success(f"**Elevação estimada:** {elevacao:.1f} metros")
-                    st.info(f"**Relevo estimado:** {relevo_estimado}")
-                else:
-                    st.warning("Não foi possível estimar o relevo. Verifique sua conexão ou configure a chave do Google Maps.")
         
         st.subheader("💧 Corpo Hídrico")
         corpo_nome = st.text_input("Nome do Rio/Lago/Represa *", value=st.session_state.dados_app.get("cadastro", {}).get("corpo_nome", ""))
@@ -390,12 +378,19 @@ def aba_cadastro():
     
     st.divider()
     
+    # Status do cadastro
+    if st.session_state.cadastro_completo:
+        st.success("✅ **Cadastro já realizado!** Você tem acesso a todas as abas.")
+        if st.button("📝 Atualizar dados do cadastro", type="secondary"):
+            st.session_state.cadastro_completo = False
+            st.rerun()
+    
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
     with col_btn2:
         if st.button("💾 Salvar Cadastro", type="primary"):
             st.session_state.dados_app["usuario"] = {
-                "nome": nome, "cpf_cnpj": cpf_cnpj, "email": email, "telefone": telefone,
-                "endereco": endereco, "cidade": cidade, "estado": estado, "cep": cep
+                "nome": nome, "email": email, "telefone": telefone,
+                "endereco": endereco, "cidade": cidade, "estado": estado
             }
             st.session_state.dados_app["cadastro"] = {
                 "fazenda_nome": fazenda_nome, "fazenda_lat": fazenda_lat, "fazenda_lon": fazenda_lon,
@@ -407,6 +402,7 @@ def aba_cadastro():
                 st.success("✅ **CADASTRO REALIZADO COM SUCESSO!**")
                 st.balloons()
                 st.info("📌 **Agora você pode acessar todas as abas do sistema.**")
+                st.rerun()  # Força recarregar para atualizar o status
             else:
                 st.session_state.cadastro_completo = False
                 st.warning("⚠️ **Cadastro incompleto!** Preencha todos os campos com *.")
