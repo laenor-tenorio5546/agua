@@ -341,9 +341,34 @@ def gerar_recomendacoes_manejo(levantamento, classificacao, analises):
     return recomendacoes
 
 
-# ============================================================
+# ============================================================================
+# FUNÇÃO PARA CONVERTER GRAUS DECIMAIS PARA GMS
+# ============================================================================
+
+def decimal_para_gms(valor_decimal):
+    """Converte coordenadas de graus decimais para Graus, Minutos e Segundos"""
+    if valor_decimal is None:
+        return (0, 0, 0)
+    
+    graus = int(abs(valor_decimal))
+    minutos_restantes = (abs(valor_decimal) - graus) * 60
+    minutos = int(minutos_restantes)
+    segundos = (minutos_restantes - minutos) * 60
+    segundos = round(segundos, 2)
+    
+    return (graus, minutos, segundos)
+
+def gms_para_decimal(graus, minutos, segundos, direcao):
+    """Converte coordenadas de GMS para graus decimais"""
+    valor_decimal = graus + (minutos / 60) + (segundos / 3600)
+    if direcao in ["S", "W", "O"]:
+        valor_decimal = -valor_decimal
+    return valor_decimal
+
+
+# ============================================================================
 # ABA 1 - CADASTRO
-# ============================================================
+# ============================================================================
 
 def aba_cadastro():
     st.header("📋 1. Cadastro de Usuário e Propriedade")
@@ -365,10 +390,48 @@ def aba_cadastro():
     with col2:
         st.subheader("🏠 Localização da Fazenda")
         fazenda_nome = st.text_input("Nome da Fazenda *", value=st.session_state.dados_app.get("cadastro", {}).get("fazenda_nome", ""))
-        fazenda_lat = st.number_input("Latitude *", format="%.6f", 
-                                      value=float(st.session_state.dados_app.get("cadastro", {}).get("fazenda_lat", -15.0)))
-        fazenda_lon = st.number_input("Longitude *", format="%.6f", 
-                                      value=float(st.session_state.dados_app.get("cadastro", {}).get("fazenda_lon", -45.0)))
+        
+        # ========== COORDENADAS EM GRAUS, MINUTOS E SEGUNDOS ==========
+        st.markdown("**🗺️ Coordenadas Geográficas (Graus, Minutos, Segundos)**")
+        
+        # Recuperar valores existentes ou usar padrão
+        lat_decimal = float(st.session_state.dados_app.get("cadastro", {}).get("fazenda_lat", -15.0))
+        lon_decimal = float(st.session_state.dados_app.get("cadastro", {}).get("fazenda_lon", -45.0))
+        
+        # Converter para GMS
+        lat_graus, lat_minutos, lat_segundos = decimal_para_gms(lat_decimal)
+        lon_graus, lon_minutos, lon_segundos = decimal_para_gms(lon_decimal)
+        
+        # Latitude
+        st.markdown("**Latitude:**")
+        col_lat1, col_lat2, col_lat3, col_lat4 = st.columns([1, 1, 1, 1])
+        with col_lat1:
+            lat_graus_input = st.number_input("Graus", min_value=0, max_value=90, value=lat_graus, key="lat_graus")
+        with col_lat2:
+            lat_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lat_minutos, key="lat_minutos")
+        with col_lat3:
+            lat_segundos_input = st.number_input("Segundos", min_value=0, max_value=59, value=float(lat_segundos), step=0.01, format="%.2f", key="lat_segundos")
+        with col_lat4:
+            lat_direcao = st.selectbox("Direção", ["S", "N"], index=0 if lat_decimal < 0 else 1, key="lat_direcao")
+        
+        # Longitude
+        st.markdown("**Longitude:**")
+        col_lon1, col_lon2, col_lon3, col_lon4 = st.columns([1, 1, 1, 1])
+        with col_lon1:
+            lon_graus_input = st.number_input("Graus", min_value=0, max_value=180, value=lon_graus, key="lon_graus")
+        with col_lon2:
+            lon_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lon_minutos, key="lon_minutos")
+        with col_lon3:
+            lon_segundos_input = st.number_input("Segundos", min_value=0, max_value=59, value=float(lon_segundos), step=0.01, format="%.2f", key="lon_segundos")
+        with col_lon4:
+            lon_direcao = st.selectbox("Direção", ["O", "L"], index=0 if lon_decimal < 0 else 1, key="lon_direcao")
+        
+        # Converter GMS de volta para decimal para salvar
+        fazenda_lat = gms_para_decimal(lat_graus_input, lat_minutos_input, lat_segundos_input, lat_direcao)
+        fazenda_lon = gms_para_decimal(lon_graus_input, lon_minutos_input, lon_segundos_input, lon_direcao)
+        
+        # Exibir coordenadas decimais para referência
+        st.caption(f"📍 Coordenadas decimais: {fazenda_lat:.6f}, {fazenda_lon:.6f}")
         
         st.subheader("💧 Corpo Hídrico")
         corpo_nome = st.text_input("Nome do Rio/Lago/Represa *", value=st.session_state.dados_app.get("cadastro", {}).get("corpo_nome", ""))
@@ -393,8 +456,11 @@ def aba_cadastro():
                 "endereco": endereco, "cidade": cidade, "estado": estado
             }
             st.session_state.dados_app["cadastro"] = {
-                "fazenda_nome": fazenda_nome, "fazenda_lat": fazenda_lat, "fazenda_lon": fazenda_lon,
-                "corpo_nome": corpo_nome, "corpo_tipo": corpo_tipo
+                "fazenda_nome": fazenda_nome, 
+                "fazenda_lat": fazenda_lat, 
+                "fazenda_lon": fazenda_lon,
+                "corpo_nome": corpo_nome, 
+                "corpo_tipo": corpo_tipo
             }
             
             if nome and email and fazenda_nome and corpo_nome:
@@ -402,11 +468,10 @@ def aba_cadastro():
                 st.success("✅ **CADASTRO REALIZADO COM SUCESSO!**")
                 st.balloons()
                 st.info("📌 **Agora você pode acessar todas as abas do sistema.**")
-                st.rerun()  # Força recarregar para atualizar o status
+                st.rerun()
             else:
                 st.session_state.cadastro_completo = False
                 st.warning("⚠️ **Cadastro incompleto!** Preencha todos os campos com *.")
-
 
 # ============================================================
 # ABA 2 - ANÁLISES BÁSICAS
