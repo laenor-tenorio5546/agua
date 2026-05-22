@@ -99,7 +99,7 @@ if 'analises_avancadas_temp' not in st.session_state:
 # 4. Vá em "Credenciais" > "Criar credenciais" > "Chave de API"
 # 5. Copie a chave e cole entre as aspas abaixo
 # ============================================================
-CHAVE_API_GOOGLE = "AIzaSyCbBzrvMUD8EZLO7v9EoYM9jiTmDDvDs9I"  # <--- COLE SUA CHAVE AQUI (ex: "AIzaSyD_1234567890...")
+CHAVE_API_GOOGLE = ""  # <--- COLE SUA CHAVE AQUI (ex: "AIzaSyD_1234567890...")
 # ============================================================
 
 
