@@ -1,14 +1,10 @@
-#Bloco 0 - Verificação e instalação automática de dependênciass
+#Bloco 0 - Verificação e instalação automática de dependências
 import subprocess
 import sys
 import importlib
 
 def verificar_e_instalar(pacotes):
-    """
-    Verifica se os pacotes estão instalados e os instala automaticamente se necessário
-    """
     pacotes_a_instalar = []
-    
     for pacote in pacotes:
         nome_import = pacote.replace("-", "_")
         try:
@@ -17,338 +13,166 @@ def verificar_e_instalar(pacotes):
         except ImportError:
             pacotes_a_instalar.append(pacote)
             print(f"⚠️ {pacote} não encontrado. Será instalado...")
-    
     if pacotes_a_instalar:
         print(f"\n📦 Instalando: {', '.join(pacotes_a_instalar)}")
         for pacote in pacotes_a_instalar:
             subprocess.check_call([sys.executable, "-m", "pip", "install", pacote])
-        print("\n✅ Todos os pacotes foram instalados com sucesso!")
         return True
-    else:
-        print("\n✅ Todos os pacotes já estão instalados!")
-        return False
+    return False
 
-# Lista de pacotes necessários
-pacotes_necessarios = [
-    "streamlit",
-    "pandas", 
-    "numpy",
-    "plotly",
-    "folium",
-    "streamlit-folium"
-]
-
-# Verificar e instalar dependências
-print("🔍 Verificando dependências do sistema...")
-precisa_reiniciar = verificar_e_instalar(pacotes_necessarios)
-
-if precisa_reiniciar:
-    print("\n🔄 As dependências foram instaladas. Reiniciando o script...")
+pacotes_necessarios = ["streamlit", "pandas", "numpy", "plotly", "folium", "streamlit-folium", "requests", "geopy"]
+print("🔍 Verificando dependências...")
+if verificar_e_instalar(pacotes_necessarios):
     import os
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
-# Agora importar os pacotes (já devem estar disponíveis)
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import folium
 from streamlit_folium import st_folium
 from datetime import datetime
+import requests
 import json
-import os
 
-# Configuração da página
-st.set_page_config(
-    page_title="Sistema de Qualidade da Água",
-    page_icon="💧",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Sistema de Qualidade da Água", page_icon="💧", layout="wide")
 
 # ============================================================
-# INICIALIZAÇÃO DOS DADOS NA SESSÃO (SEM PERSISTÊNCIA EM ARQUIVO)
+# 🔑 INSIRA SUAS CHAVES AQUI (ÚNICO LUGAR QUE PRECISA ALTERAR)
 # ============================================================
-# Os dados são armazenados apenas na sessão. Ao atualizar a página, tudo é resetado.
+CHAVE_API_GOOGLE = ""  # COLE SUA CHAVE DO GOOGLE MAPS AQUI
+CHAVE_API_MAPBIOMAS = ""  # COLE SUA CHAVE DO MAPBIOMAS AQUI (opcional)
+# ============================================================
+
+# Inicialização da sessão
 if 'cadastro_completo' not in st.session_state:
     st.session_state.cadastro_completo = False
-
 if 'dados_app' not in st.session_state:
-    st.session_state.dados_app = {
-        "cadastro": {},
-        "analises": [],
-        "analises_avancadas": [],
-        "levantamento": {},
-        "usuario": {}
-    }
-
+    st.session_state.dados_app = {"cadastro": {}, "analises": [], "levantamento": {}}
 if 'analises_temp' not in st.session_state:
-    st.session_state.analises_temp = []
-
-if 'analises_avancadas_temp' not in st.session_state:
-    st.session_state.analises_avancadas_temp = []
-
+    st.session_state.analises_temp = [{}]
 
 # ============================================================
-# CHAVE API DO GOOGLE MAPS - INSIRA SUA CHAVE AQUI
-# ============================================================
-# Para obter uma chave gratuita:
-# 1. Acesse: https://console.cloud.google.com/
-# 2. Crie um projeto ou selecione um existente
-# 3. Ative a API: "Maps JavaScript API"
-# 4. Vá em "Credenciais" > "Criar credenciais" > "Chave de API"
-# 5. Copie a chave e cole entre as aspas abaixo
-# ============================================================
-CHAVE_API_GOOGLE = ""  # <--- COLE SUA CHAVE AQUI (ex: "AIzaSyD_1234567890...")
+# FUNÇÕES AUXILIARES
 # ============================================================
 
+def estimar_relevo_por_coordenadas(lat, lon):
+    """Estima o relevo usando Google Elevation API"""
+    if not CHAVE_API_GOOGLE:
+        return "Não disponível (insira chave do Google Maps)"
+    try:
+        url = f"https://maps.googleapis.com/maps/api/elevation/json?locations={lat},{lon}&key={CHAVE_API_GOOGLE}"
+        resp = requests.get(url).json()
+        if resp['status'] == 'OK':
+            elevacao = resp['results'][0]['elevation']
+            if elevacao < 100:
+                return "Plano/Baixada"
+            elif elevacao < 300:
+                return "Suave ondulado"
+            elif elevacao < 700:
+                return "Ondulado"
+            else:
+                return "Montanhoso"
+    except:
+        return "Não disponível"
 
-#Bloco 1 - Função de classificação da qualidade da água (baseado na CONAMA 357/2005)
-def classificar_ponto(analise):
-    """
-    Classifica o ponto de acordo com a Resolução CONAMA 357/2005
-    Retorna: classe, usos, cor_indicativa
-    """
-    classe = 1
-    motivos = []
+def estimar_cobertura_solo(lat, lon):
+    """Estima uso do solo via MapBiomas (se tiver chave)"""
+    if not CHAVE_API_MAPBIOMAS:
+        return "Não disponível (insira chave do MapBiomas)"
+    return "Informação não disponível"
+
+# ============================================================
+# CLASSIFICAÇÃO ADAPTATIVA
+# ============================================================
+
+def classificar_ponto_adaptativo(analise):
+    """Classifica baseado nos parâmetros disponíveis. Se insuficiente, retorna 'Dados insuficientes'"""
+    parâmetros_preenchidos = [k for k, v in analise.items() if v not in [None, "", 0] and k not in ['nome', 'lat', 'lon', 'data']]
     
-    # OD - Oxigênio Dissolvido (mg/L)
-    if 'od' in analise and analise['od'] is not None:
-        od = analise['od']
-        if od < 5.0:
-            classe = max(classe, 3 if od < 4.0 else 2)
-            motivos.append(f"OD baixo ({od} mg/L)")
-        elif od < 6.0:
-            classe = max(classe, 2)
-            motivos.append(f"OD ({od} mg/L) abaixo da Classe 1")
+    if len(parâmetros_preenchidos) < 3:
+        return "Dados insuficientes", "⚪", ["Adicione mais parâmetros para classificação"], parâmetros_preenchidos
+    
+    classe = 1
+    
+    # OD
+    if 'od' in analise and analise['od']:
+        if analise['od'] < 5: classe = max(classe, 3)
+        elif analise['od'] < 6: classe = max(classe, 2)
     
     # pH
-    if 'ph' in analise and analise['ph'] is not None:
-        ph = analise['ph']
-        if ph < 6.0 or ph > 9.0:
-            classe = max(classe, 4)
-            motivos.append(f"pH fora da faixa ({ph})")
-        elif ph < 6.5 or ph > 8.5:
-            classe = max(classe, 3)
-            motivos.append(f"pH ({ph}) fora da faixa Classe 1/2")
+    if 'ph' in analise and analise['ph']:
+        if analise['ph'] < 6 or analise['ph'] > 9: classe = max(classe, 4)
+        elif analise['ph'] < 6.5 or analise['ph'] > 8.5: classe = max(classe, 3)
     
     # DBO
-    if 'dbo' in analise and analise['dbo'] is not None:
-        dbo = analise['dbo']
-        if dbo > 10.0:
-            classe = max(classe, 4)
-            motivos.append(f"DBO alta ({dbo} mg/L)")
-        elif dbo > 5.0:
-            classe = max(classe, 3)
-            motivos.append(f"DBO ({dbo} mg/L) acima da Classe 2")
-        elif dbo > 3.0:
-            classe = max(classe, 2)
-            motivos.append(f"DBO ({dbo} mg/L) acima da Classe 1")
+    if 'dbo' in analise and analise['dbo']:
+        if analise['dbo'] > 10: classe = max(classe, 4)
+        elif analise['dbo'] > 5: classe = max(classe, 3)
+        elif analise['dbo'] > 3: classe = max(classe, 2)
     
-    # Turbidez
-    if 'turbidez' in analise and analise['turbidez'] is not None:
-        turb = analise['turbidez']
-        if turb > 100:
-            classe = max(classe, 4)
-        elif turb > 40:
-            classe = max(classe, 3)
-        elif turb > 10:
-            classe = max(classe, 2)
+    # Coliformes
+    if 'coliformes' in analise and analise['coliformes']:
+        if analise['coliformes'] > 4000: classe = max(classe, 4)
+        elif analise['coliformes'] > 1000: classe = max(classe, 3)
+        elif analise['coliformes'] > 200: classe = max(classe, 2)
     
-    # E. coli
-    if 'coliformes' in analise and analise['coliformes'] is not None:
-        col = analise['coliformes']
-        if col > 4000:
-            classe = max(classe, 4)
-            motivos.append(f"Coliformes altos ({col} NMP)")
-        elif col > 1000:
+    # Metais
+    metais = ['chumbo', 'cadmio', 'mercurio', 'arsenio', 'cromo', 'cobre', 'zinco']
+    for metal in metais:
+        if metal in analise and analise[metal] and analise[metal] > 0.01:
             classe = max(classe, 3)
-        elif col > 200:
-            classe = max(classe, 2)
     
-    # Fósforo Total
-    if 'fosforo_total' in analise and analise['fosforo_total'] is not None:
-        p = analise['fosforo_total']
-        if p > 0.15:
-            classe = max(classe, 3)
-        elif p > 0.05:
-            classe = max(classe, 2)
-    
-    # Nitrogênio Total
-    if 'nitrogenio_total' in analise and analise['nitrogenio_total'] is not None:
-        n = analise['nitrogenio_total']
-        if n > 3.7:
-            classe = max(classe, 3)
-        elif n > 2.0:
-            classe = max(classe, 2)
-    
-    # Definição da classe final
     if classe == 1:
-        classe_texto = "Classe 1"
-        cor = "🟢"
-        usos = ["Abastecimento doméstico com desinfecção simples", "Proteção da vida aquática", "Irrigação"]
+        return "Classe 1", "🟢", ["Excelente qualidade"], parâmetros_preenchidos
     elif classe == 2:
-        classe_texto = "Classe 2"
-        cor = "🟡"
-        usos = ["Abastecimento com tratamento convencional", "Proteção da vida aquática", "Irrigação", "Recreação"]
+        return "Classe 2", "🟡", ["Qualidade boa, requer tratamento convencional"], parâmetros_preenchidos
     elif classe == 3:
-        classe_texto = "Classe 3"
-        cor = "🟠"
-        usos = ["Abastecimento com tratamento convencional", "Irrigação", "Dessedentação de animais"]
+        return "Classe 3", "🟠", ["Qualidade regular, requer tratamento avançado"], parâmetros_preenchidos
     else:
-        classe_texto = "Classe 4"
-        cor = "🔴"
-        usos = ["Navegação", "Harmonia paisagística", "Usos menos exigentes"]
-    
-    return classe_texto, cor, usos, motivos
+        return "Classe 4", "🔴", ["Qualidade ruim, restrição de usos"], parâmetros_preenchidos
 
 
-def avaliar_trecho(pontos_classificados):
-    if not pontos_classificados:
-        return "Sem dados", "⚪", []
-    
-    classes = [c for c, _, _, _ in pontos_classificados]
-    indices = {"Classe 1": 1, "Classe 2": 2, "Classe 3": 3, "Classe 4": 4}
-    pior = max(classes, key=lambda x: indices.get(x, 4))
-    
-    if pior == "Classe 1":
-        status = "Excelente"
-        cor = "🟢"
-        recomendacao = "Qualidade preservada. Manter práticas de conservação."
-    elif pior == "Classe 2":
-        status = "Boa"
-        cor = "🟡"
-        recomendacao = "Qualidade satisfatória. Monitorar parâmetros críticos."
-    elif pior == "Classe 3":
-        status = "Regular"
-        cor = "🟠"
-        recomendacao = "Qualidade comprometida. Necessário tratamento convencional para abastecimento."
-    else:
-        status = "Ruim"
-        cor = "🔴"
-        recomendacao = "Qualidade severamente degradada. Intervenção prioritária necessária."
-    
-    return status, cor, [recomendacao]
+# ============================================================
+# ABA 1 - CADASTRO
+# ============================================================
 
-
-def gerar_recomendacoes_manejo(levantamento, classificacao_geral, analises):
-    recomendacoes = []
-    
-    if levantamento:
-        cobertura = levantamento.get('cobertura_solo', '').lower()
-        
-        if 'pastagem' in cobertura or 'agricultura' in cobertura:
-            recomendacoes.append("🌾 **Agricultura/Pastagem**: Implementar práticas de conservação do solo, como plantio direto, terraços e faixas de amortecimento com vegetação nativa.")
-        
-        if 'urbano' in cobertura or 'esgoto' in str(levantamento):
-            recomendacoes.append("🏙️ **Área Urbana/Esgoto**: Investir em saneamento básico, tratamento de esgoto e evitar lançamento in natura.")
-        
-        if 'mineracao' in str(levantamento):
-            recomendacoes.append("⛏️ **Mineração**: Controle de drenagem ácida, tratamento de efluentes e recuperação de áreas degradadas.")
-        
-        if 'queimada' in str(levantamento):
-            recomendacoes.append("🔥 **Queimadas**: Desenvolver plano de prevenção e combate a incêndios. Recuperar áreas queimadas.")
-    
-    if classificacao_geral == "Ruim" or classificacao_geral == "Regular":
-        recomendacoes.append("⚠️ **Qualidade da água crítica**: Priorizar ações emergenciais como isolamento da área de captação e fiscalização de fontes poluidoras.")
-    
-    if analises:
-        od_baixo = any(a.get('od', 10) < 5 for a in analises)
-        dbo_alto = any(a.get('dbo', 0) > 5 for a in analises)
-        
-        if od_baixo or dbo_alto:
-            recomendacoes.append("💨 **Baixo OD/Alta DBO**: Reduzir lançamento de matéria orgânica (esgoto, efluentes agroindustriais).")
-    
-    if not recomendacoes:
-        recomendacoes.append("✅ **Boas práticas**: Manter a conservação da mata ciliar e monitorar periodicamente.")
-    
-    return recomendacoes
-
-
-def usos_possiveis_agua(classificacao_por_ponto):
-    usos_por_classe = {
-        "Classe 1": ["✅ Abastecimento doméstico com desinfecção simples", "✅ Proteção da vida aquática", "✅ Irrigação", "✅ Recreação"],
-        "Classe 2": ["✅ Abastecimento com tratamento convencional", "✅ Proteção da vida aquática", "✅ Irrigação", "✅ Recreação"],
-        "Classe 3": ["⚠️ Abastecimento com tratamento convencional avançado", "✅ Irrigação de culturas arbóreas", "✅ Dessedentação de animais"],
-        "Classe 4": ["✅ Navegação", "✅ Harmonia paisagística", "❌ Abastecimento humano", "❌ Irrigação de hortaliças"]
-    }
-    
-    resultados = {}
-    for ponto, classe, _, _, _ in classificacao_por_ponto:
-        resultados[ponto] = usos_por_classe.get(classe, usos_por_classe["Classe 4"])
-    
-    return resultados
-
-
-# Função para verificar se o cadastro está completo
-def cadastro_esta_completo():
-    cad = st.session_state.dados_app.get("cadastro", {})
-    usuario = st.session_state.dados_app.get("usuario", {})
-    
-    campos_obrigatorios_cadastro = ['fazenda_nome', 'corpo_nome']
-    campos_obrigatorios_usuario = ['nome', 'email']
-    
-    cad_ok = all(cad.get(campo) for campo in campos_obrigatorios_cadastro)
-    user_ok = all(usuario.get(campo) for campo in campos_obrigatorios_usuario)
-    
-    return cad_ok and user_ok
-
-
-#Bloco 2 - Aba 1: Cadastro
 def aba_cadastro():
-    st.header("📋 1. Cadastro de Usuário e Propriedade")
-    st.markdown("**⚠️ O cadastro deve ser preenchido completamente para acessar as demais abas.**")
+    st.header("📋 1. Cadastro")
     
     col1, col2 = st.columns(2)
-    
     with col1:
-        st.subheader("Dados do Usuário")
-        nome = st.text_input("Nome completo *", value=st.session_state.dados_app.get("usuario", {}).get("nome", ""))
-        email = st.text_input("E-mail *", value=st.session_state.dados_app.get("usuario", {}).get("email", ""))
-        telefone = st.text_input("Telefone", value=st.session_state.dados_app.get("usuario", {}).get("telefone", ""))
-        
-        st.subheader("Endereço")
-        endereco = st.text_input("Logradouro", value=st.session_state.dados_app.get("usuario", {}).get("endereco", ""))
-        cidade = st.text_input("Cidade", value=st.session_state.dados_app.get("usuario", {}).get("cidade", ""))
-        estado = st.text_input("Estado (UF)", value=st.session_state.dados_app.get("usuario", {}).get("estado", ""))
-    
+        nome = st.text_input("Nome completo *")
+        email = st.text_input("E-mail *")
+        telefone = st.text_input("Telefone")
     with col2:
-        st.subheader("Localização da Fazenda")
-        fazenda_nome = st.text_input("Nome da Fazenda *", value=st.session_state.dados_app.get("cadastro", {}).get("fazenda_nome", ""))
-        fazenda_lat = st.number_input("Latitude (SIG BR - graus decimais)", value=st.session_state.dados_app.get("cadastro", {}).get("fazenda_lat", -15.0), format="%.6f")
-        fazenda_lon = st.number_input("Longitude (SIG BR - graus decimais)", value=st.session_state.dados_app.get("cadastro", {}).get("fazenda_lon", -45.0), format="%.6f")
-        
-        st.subheader("Corpo Hídrico")
-        corpo_nome = st.text_input("Nome do Rio/Lago/Represa *", value=st.session_state.dados_app.get("cadastro", {}).get("corpo_nome", ""))
-        corpo_tipo = st.selectbox("Tipo de corpo hídrico", ["Rio", "Lago", "Represa", "Córrego", "Outro"], 
-                                  index=["Rio", "Lago", "Represa", "Córrego", "Outro"].index(st.session_state.dados_app.get("cadastro", {}).get("corpo_tipo", "Rio")))
+        fazenda = st.text_input("Nome da Fazenda *")
+        fazenda_lat = st.number_input("Latitude", format="%.6f", value=-15.0)
+        fazenda_lon = st.number_input("Longitude", format="%.6f", value=-45.0)
+        corpo_hidrico = st.text_input("Nome do Rio/Lago/Represa *")
     
     st.divider()
-    
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
-    with col_btn2:
-        if st.button("💾 Salvar Cadastro", type="primary"):
-            st.session_state.dados_app["usuario"] = {
-                "nome": nome, "email": email, "telefone": telefone,
-                "endereco": endereco, "cidade": cidade, "estado": estado
-            }
-            st.session_state.dados_app["cadastro"] = {
-                "fazenda_nome": fazenda_nome, "fazenda_lat": fazenda_lat, "fazenda_lon": fazenda_lon,
-                "corpo_nome": corpo_nome, "corpo_tipo": corpo_tipo
-            }
-            
-            if cadastro_esta_completo():
-                st.session_state.cadastro_completo = True
-                st.success("✅ Cadastro salvo com sucesso! Agora você pode acessar as outras abas.")
-            else:
-                st.session_state.cadastro_completo = False
-                st.warning("⚠️ Cadastro salvo, mas ainda faltam campos obrigatórios (*). Preencha-os para acessar as demais abas.")
+    if st.button("💾 Salvar Cadastro", type="primary"):
+        st.session_state.dados_app["cadastro"] = {
+            "nome": nome, "email": email, "telefone": telefone,
+            "fazenda": fazenda, "lat": fazenda_lat, "lon": fazenda_lon,
+            "corpo_hidrico": corpo_hidrico
+        }
+        if nome and email and fazenda and corpo_hidrico:
+            st.session_state.cadastro_completo = True
+            st.success("✅ Cadastro completo! Abas liberadas.")
+            st.balloons()
+        else:
+            st.warning("⚠️ Preencha todos os campos com *")
 
 
-#Bloco 3 - Aba 2: Análises Básicas
+# ============================================================
+# ABA 2 - ANÁLISES (TODOS OS PARÂMETROS)
+# ============================================================
+
 def aba_analises():
-    st.header("🧪 2. Análises Básicas de Qualidade da Água")
-    st.caption("Preencha os parâmetros essenciais para classificação conforme CONAMA 357/2005. Máximo 10 pontos.")
+    st.header("🧪 2. Análises de Qualidade da Água")
+    st.caption("Preencha os parâmetros disponíveis. Quanto mais dados, melhor a classificação.")
     
     num_pontos = len(st.session_state.analises_temp)
     if num_pontos == 0:
@@ -356,348 +180,434 @@ def aba_analises():
         st.session_state.analises_temp = [{}]
     
     for i in range(num_pontos):
-        with st.expander(f"📌 Ponto de Coleta {i+1}", expanded=(i == num_pontos-1)):
-            col1, col2 = st.columns(2)
+        with st.expander(f"📌 Ponto {i+1}", expanded=(i == num_pontos-1)):
             
+            # Identificação do ponto
+            col_id1, col_id2, col_id3 = st.columns(3)
+            with col_id1:
+                nome = st.text_input(f"ID do Ponto", key=f"nome_{i}", value=st.session_state.analises_temp[i].get("nome", f"P{i+1}"))
+            with col_id2:
+                lat = st.number_input(f"Latitude", key=f"lat_{i}", format="%.6f", value=float(st.session_state.analises_temp[i].get("lat", -15.0)))
+            with col_id3:
+                lon = st.number_input(f"Longitude", key=f"lon_{i}", format="%.6f", value=float(st.session_state.analises_temp[i].get("lon", -45.0)))
+            
+            st.markdown("---")
+            
+            # PARÂMETROS FÍSICO-QUÍMICOS BÁSICOS
+            st.markdown("### 🌊 Parâmetros Físico-Químicos Básicos")
+            col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
-                st.markdown("**📍 Identificação**")
-                ponto_nome = st.text_input(f"Nome/ID", key=f"nome_{i}", 
-                                           value=st.session_state.analises_temp[i].get("nome", f"Ponto {i+1}"))
-                ponto_lat = st.number_input(f"Latitude", key=f"lat_{i}", format="%.6f",
-                                            value=st.session_state.analises_temp[i].get("lat", -15.0))
-                ponto_lon = st.number_input(f"Longitude", key=f"lon_{i}", format="%.6f",
-                                            value=st.session_state.analises_temp[i].get("lon", -45.0))
-                data_coleta = st.date_input(f"Data da coleta", key=f"data_{i}",
-                                            value=datetime.now())
-            
+                temperatura = st.number_input(f"Temperatura (°C)", key=f"temp_{i}", value=float(st.session_state.analises_temp[i].get("temperatura", 25.0)), step=0.1, format="%.1f")
             with col2:
-                st.markdown("**📊 Parâmetros Físico-Químicos**")
-                temperatura = st.number_input(f"Temperatura (°C)", key=f"temp_{i}", value=float(st.session_state.analises_temp[i].get("temperatura", 25.0)), step=0.1)
-                ph = st.number_input(f"pH", key=f"ph_{i}", value=float(st.session_state.analises_temp[i].get("ph", 7.0)), step=0.1)
-                turbidez = st.number_input(f"Turbidez (NTU)", key=f"turbidez_{i}", value=float(st.session_state.analises_temp[i].get("turbidez", 5.0)), step=0.1)
-                od = st.number_input(f"Oxigênio Dissolvido - OD (mg/L)", key=f"od_{i}", value=float(st.session_state.analises_temp[i].get("od", 7.0)), step=0.1)
-                dbo = st.number_input(f"DBO₅,₂₀ (mg/L)", key=f"dbo_{i}", value=float(st.session_state.analises_temp[i].get("dbo", 2.0)), step=0.1)
-                coliformes = st.number_input(f"E. coli/Coliformes (NMP/100mL)", key=f"col_{i}", value=int(st.session_state.analises_temp[i].get("coliformes", 50)), step=10)
-                fosforo_total = st.number_input(f"Fósforo Total (mg/L P)", key=f"p_total_{i}", value=float(st.session_state.analises_temp[i].get("fosforo_total", 0.03)), step=0.01, format="%.4f")
-                nitrogenio_total = st.number_input(f"Nitrogênio Total (mg/L N)", key=f"n_total_{i}", value=float(st.session_state.analises_temp[i].get("nitrogenio_total", 1.0)), step=0.1)
+                ph = st.number_input(f"pH", key=f"ph_{i}", value=float(st.session_state.analises_temp[i].get("ph", 7.0)), step=0.1, format="%.1f")
+            with col3:
+                condutividade = st.number_input(f"Condutividade (µS/cm)", key=f"cond_{i}", value=float(st.session_state.analises_temp[i].get("condutividade", 100.0)), step=10.0, format="%.1f")
+            with col4:
+                turbidez = st.number_input(f"Turbidez (NTU)", key=f"turb_{i}", value=float(st.session_state.analises_temp[i].get("turbidez", 5.0)), step=0.1, format="%.1f")
+            with col5:
+                salinidade = st.number_input(f"Salinidade (PSU)", key=f"salin_{i}", value=float(st.session_state.analises_temp[i].get("salinidade", 0.0)), step=0.1, format="%.1f")
             
+            col6, col7, col8, col9, col10 = st.columns(5)
+            with col6:
+                cor_aparente = st.number_input(f"Cor Aparente (mg/L Pt-Co)", key=f"cor_ap_{i}", value=int(st.session_state.analises_temp[i].get("cor_aparente", 10)), step=5)
+            with col7:
+                cor_verdadeira = st.number_input(f"Cor Verdadeira (mg/L Pt-Co)", key=f"cor_vd_{i}", value=int(st.session_state.analises_temp[i].get("cor_verdadeira", 5)), step=5)
+            with col8:
+                std = st.number_input(f"STD (mg/L)", key=f"std_{i}", value=int(st.session_state.analises_temp[i].get("std", 200)), step=10)
+            with col9:
+                sst = st.number_input(f"SST (mg/L)", key=f"sst_{i}", value=int(st.session_state.analises_temp[i].get("sst", 50)), step=10)
+            with col10:
+                orp = st.number_input(f"ORP (mV)", key=f"orp_{i}", value=int(st.session_state.analises_temp[i].get("orp", 0)), step=10)
+            
+            st.markdown("---")
+            
+            # OXIGÊNIO E DEMANDA
+            st.markdown("### 💨 Oxigênio e Demanda")
+            col11, col12, col13 = st.columns(3)
+            with col11:
+                od = st.number_input(f"OD (mg/L)", key=f"od_{i}", value=float(st.session_state.analises_temp[i].get("od", 7.0)), step=0.1, format="%.1f")
+            with col12:
+                dbo = st.number_input(f"DBO₅,₂₀ (mg/L)", key=f"dbo_{i}", value=float(st.session_state.analises_temp[i].get("dbo", 2.0)), step=0.1, format="%.1f")
+            with col13:
+                dqo = st.number_input(f"DQO (mg/L)", key=f"dqo_{i}", value=float(st.session_state.analises_temp[i].get("dqo", 10.0)), step=1.0, format="%.1f")
+            
+            st.markdown("---")
+            
+            # NUTRIENTES
+            st.markdown("### 🧫 Nutrientes")
+            col14, col15, col16, col17, col18, col19 = st.columns(6)
+            with col14:
+                n_amoniacal = st.number_input(f"N-Amoniacal (mg/L)", key=f"nam_{i}", value=float(st.session_state.analises_temp[i].get("n_amoniacal", 0.5)), step=0.1, format="%.2f")
+            with col15:
+                nitrato = st.number_input(f"Nitrato (mg/L)", key=f"nit_{i}", value=float(st.session_state.analises_temp[i].get("nitrato", 1.0)), step=0.1, format="%.2f")
+            with col16:
+                nitrito = st.number_input(f"Nitrito (mg/L)", key=f"nitri_{i}", value=float(st.session_state.analises_temp[i].get("nitrito", 0.05)), step=0.01, format="%.3f")
+            with col17:
+                n_total = st.number_input(f"N-Total (mg/L)", key=f"nt_{i}", value=float(st.session_state.analises_temp[i].get("n_total", 1.0)), step=0.1, format="%.2f")
+            with col18:
+                p_total = st.number_input(f"P-Total (mg/L)", key=f"pt_{i}", value=float(st.session_state.analises_temp[i].get("p_total", 0.03)), step=0.01, format="%.4f")
+            with col19:
+                fosfato = st.number_input(f"Fosfato (mg/L)", key=f"fos_{i}", value=float(st.session_state.analises_temp[i].get("fosfato", 0.1)), step=0.01, format="%.3f")
+            
+            st.markdown("---")
+            
+            # INDICADORES BIOLÓGICOS
+            st.markdown("### 🦠 Indicadores Biológicos")
+            col20, col21, col22, col23, col24 = st.columns(5)
+            with col20:
+                coliformes = st.number_input(f"Coliformes (NMP/100mL)", key=f"col_{i}", value=int(st.session_state.analises_temp[i].get("coliformes", 50)), step=10)
+            with col21:
+                e_coli = st.number_input(f"E. coli (NMP/100mL)", key=f"ec_{i}", value=int(st.session_state.analises_temp[i].get("e_coli", 50)), step=10)
+            with col22:
+                enterococos = st.number_input(f"Enterococos (NMP/100mL)", key=f"ent_{i}", value=int(st.session_state.analises_temp[i].get("enterococos", 0)), step=10)
+            with col23:
+                clorofila = st.number_input(f"Clorofila-a (µg/L)", key=f"cl_{i}", value=float(st.session_state.analises_temp[i].get("clorofila", 5.0)), step=1.0, format="%.1f")
+            with col24:
+                cianobacterias = st.number_input(f"Cianobactérias (cel/mL)", key=f"cia_{i}", value=float(st.session_state.analises_temp[i].get("cianobacterias", 0)), step=100.0, format="%.0f")
+            
+            st.markdown("---")
+            
+            # METAIS PESADOS
+            st.markdown("### 🔬 Metais Pesados e Tóxicos")
+            col25, col26, col27, col28, col29, col30 = st.columns(6)
+            with col25:
+                ferro = st.number_input(f"Ferro (mg/L)", key=f"fe_{i}", value=float(st.session_state.analises_temp[i].get("ferro", 0.3)), step=0.1, format="%.3f")
+            with col26:
+                manganes = st.number_input(f"Manganês (mg/L)", key=f"mn_{i}", value=float(st.session_state.analises_temp[i].get("manganes", 0.1)), step=0.05, format="%.3f")
+            with col27:
+                aluminio = st.number_input(f"Alumínio (mg/L)", key=f"al_{i}", value=float(st.session_state.analises_temp[i].get("aluminio", 0.1)), step=0.05, format="%.3f")
+            with col28:
+                zinco = st.number_input(f"Zinco (mg/L)", key=f"zn_{i}", value=float(st.session_state.analises_temp[i].get("zinco", 0.05)), step=0.01, format="%.3f")
+            with col29:
+                cobre = st.number_input(f"Cobre (mg/L)", key=f"cu_{i}", value=float(st.session_state.analises_temp[i].get("cobre", 0.01)), step=0.01, format="%.3f")
+            with col30:
+                chumbo = st.number_input(f"Chumbo (mg/L)", key=f"pb_{i}", value=float(st.session_state.analises_temp[i].get("chumbo", 0.001)), step=0.001, format="%.4f")
+            
+            col31, col32, col33, col34, col35, col36 = st.columns(6)
+            with col31:
+                cadmio = st.number_input(f"Cádmio (mg/L)", key=f"cd_{i}", value=float(st.session_state.analises_temp[i].get("cadmio", 0.0005)), step=0.0005, format="%.4f")
+            with col32:
+                mercurio = st.number_input(f"Mercúrio (mg/L)", key=f"hg_{i}", value=float(st.session_state.analises_temp[i].get("mercurio", 0.0001)), step=0.0001, format="%.4f")
+            with col33:
+                arsenio = st.number_input(f"Arsênio (mg/L)", key=f"as_{i}", value=float(st.session_state.analises_temp[i].get("arsenio", 0.001)), step=0.001, format="%.4f")
+            with col34:
+                cromo = st.number_input(f"Cromo (mg/L)", key=f"cr_{i}", value=float(st.session_state.analises_temp[i].get("cromo", 0.01)), step=0.01, format="%.3f")
+            with col35:
+                niquel = st.number_input(f"Níquel (mg/L)", key=f"ni_{i}", value=float(st.session_state.analises_temp[i].get("niquel", 0.005)), step=0.005, format="%.4f")
+            with col36:
+                selenio = st.number_input(f"Selênio (mg/L)", key=f"se_{i}", value=float(st.session_state.analises_temp[i].get("selenio", 0.001)), step=0.001, format="%.4f")
+            
+            col37, col38, col39 = st.columns(3)
+            with col37:
+                bario = st.number_input(f"Bário (mg/L)", key=f"ba_{i}", value=float(st.session_state.analises_temp[i].get("bario", 0.1)), step=0.05, format="%.3f")
+            with col38:
+                boro = st.number_input(f"Boro (mg/L)", key=f"bo_{i}", value=float(st.session_state.analises_temp[i].get("boro", 0.1)), step=0.05, format="%.3f")
+            with col39:
+                prata = st.number_input(f"Prata (mg/L)", key=f"ag_{i}", value=float(st.session_state.analises_temp[i].get("prata", 0.0005)), step=0.0005, format="%.4f")
+            
+            st.markdown("---")
+            
+            # ÂNIONS
+            st.markdown("### 🧪 Ânions")
+            col40, col41, col42, col43 = st.columns(4)
+            with col40:
+                sulfatos = st.number_input(f"Sulfatos (mg/L)", key=f"sulf_{i}", value=float(st.session_state.analises_temp[i].get("sulfatos", 50.0)), step=10.0, format="%.1f")
+            with col41:
+                fluoreto = st.number_input(f"Fluoreto (mg/L)", key=f"flu_{i}", value=float(st.session_state.analises_temp[i].get("fluoreto", 0.5)), step=0.1, format="%.2f")
+            with col42:
+                cianeto = st.number_input(f"Cianeto (mg/L)", key=f"cian_{i}", value=float(st.session_state.analises_temp[i].get("cianeto", 0.0)), step=0.01, format="%.3f")
+            with col43:
+                cloreto = st.number_input(f"Cloretos (mg/L)", key=f"cl_{i}", value=float(st.session_state.analises_temp[i].get("cloretos", 50.0)), step=10.0, format="%.1f")
+            
+            st.markdown("---")
+            
+            # ALCALINIDADE E DUREZA
+            st.markdown("### 💧 Alcalinidade e Dureza")
+            col44, col45 = st.columns(2)
+            with col44:
+                alcalinidade = st.number_input(f"Alcalinidade (mg/L CaCO₃)", key=f"alc_{i}", value=float(st.session_state.analises_temp[i].get("alcalinidade", 50.0)), step=10.0, format="%.1f")
+            with col45:
+                dureza = st.number_input(f"Dureza Total (mg/L CaCO₃)", key=f"dur_{i}", value=float(st.session_state.analises_temp[i].get("dureza", 100.0)), step=10.0, format="%.1f")
+            
+            st.markdown("---")
+            
+            # COMPOSTOS ORGÂNICOS
+            st.markdown("### 🧴 Compostos Orgânicos")
+            col46, col47, col48, col49 = st.columns(4)
+            with col46:
+                oleos = st.number_input(f"Óleos e Graxas (mg/L)", key=f"oleo_{i}", value=float(st.session_state.analises_temp[i].get("oleos", 0.0)), step=0.5, format="%.1f")
+            with col47:
+                fenoIs = st.number_input(f"Fenóis (mg/L)", key=f"fen_{i}", value=float(st.session_state.analises_temp[i].get("fenois", 0.0)), step=0.001, format="%.4f")
+            with col48:
+                surfactantes = st.number_input(f"Surfactantes (mg/L)", key=f"surf_{i}", value=float(st.session_state.analises_temp[i].get("surfactantes", 0.0)), step=0.1, format="%.2f")
+            with col49:
+                cot = st.number_input(f"COT (mg/L)", key=f"cot_{i}", value=float(st.session_state.analises_temp[i].get("cot", 5.0)), step=1.0, format="%.1f")
+            
+            col50, col51, col52, col53 = st.columns(4)
+            with col50:
+                benzeno = st.number_input(f"Benzeno (µg/L)", key=f"benz_{i}", value=float(st.session_state.analises_temp[i].get("benzeno", 0.0)), step=1.0, format="%.1f")
+            with col51:
+                tolueno = st.number_input(f"Tolueno (µg/L)", key=f"tol_{i}", value=float(st.session_state.analises_temp[i].get("tolueno", 0.0)), step=1.0, format="%.1f")
+            with col52:
+                xileno = st.number_input(f"Xileno (µg/L)", key=f"xil_{i}", value=float(st.session_state.analises_temp[i].get("xileno", 0.0)), step=1.0, format="%.1f")
+            with col53:
+                thm = st.number_input(f"Trihalometanos (µg/L)", key=f"thm_{i}", value=float(st.session_state.analises_temp[i].get("thm", 0.0)), step=1.0, format="%.1f")
+            
+            col54, col55 = st.columns(2)
+            with col54:
+                pesticidas = st.text_input(f"Pesticidas (especificar)", key=f"pest_{i}", value=st.session_state.analises_temp[i].get("pesticidas", "Não detectado"))
+            with col55:
+                herbicidas = st.text_input(f"Herbicidas (especificar)", key=f"herb_{i}", value=st.session_state.analises_temp[i].get("herbicidas", "Não detectado"))
+            
+            st.markdown("---")
+            
+            # TOXICIDADE E ÍNDICES
+            st.markdown("### 📊 Toxicidade e Índices")
+            col56, col57, col58, col59 = st.columns(4)
+            with col56:
+                tox_aguda = st.selectbox(f"Toxicidade Aguda", ["Não analisado", "Não detectada", "Detectada"], key=f"toxag_{i}")
+            with col57:
+                tox_cronica = st.selectbox(f"Toxicidade Crônica", ["Não analisado", "Não detectada", "Detectada"], key=f"toxc_{i}")
+            with col58:
+                iqa = st.number_input(f"IQA (0-100)", key=f"iqa_{i}", value=float(st.session_state.analises_temp[i].get("iqa", 70.0)), step=1.0, min_value=0.0, max_value=100.0)
+            with col59:
+                iet = st.selectbox(f"IET", ["Não calculado", "Ultraoligotrófico", "Oligotrófico", "Mesotrófico", "Eutrófico", "Hipereutrófico"], key=f"iet_{i}")
+            
+            # Salvar todos os dados do ponto
             st.session_state.analises_temp[i] = {
-                "nome": ponto_nome, "lat": ponto_lat, "lon": ponto_lon, "data": str(data_coleta),
-                "temperatura": temperatura, "ph": ph, "turbidez": turbidez,
-                "od": od, "dbo": dbo, "coliformes": coliformes,
-                "fosforo_total": fosforo_total, "nitrogenio_total": nitrogenio_total
+                "nome": nome, "lat": lat, "lon": lon,
+                "temperatura": temperatura, "ph": ph, "condutividade": condutividade,
+                "turbidez": turbidez, "salinidade": salinidade,
+                "cor_aparente": cor_aparente, "cor_verdadeira": cor_verdadeira,
+                "std": std, "sst": sst, "orp": orp,
+                "od": od, "dbo": dbo, "dqo": dqo,
+                "n_amoniacal": n_amoniacal, "nitrato": nitrato, "nitrito": nitrito,
+                "n_total": n_total, "p_total": p_total, "fosfato": fosfato,
+                "coliformes": coliformes, "e_coli": e_coli, "enterococos": enterococos,
+                "clorofila": clorofila, "cianobacterias": cianobacterias,
+                "ferro": ferro, "manganes": manganes, "aluminio": aluminio,
+                "zinco": zinco, "cobre": cobre, "chumbo": chumbo,
+                "cadmio": cadmio, "mercurio": mercurio, "arsenio": arsenio,
+                "cromo": cromo, "niquel": niquel, "selenio": selenio,
+                "bario": bario, "boro": boro, "prata": prata,
+                "sulfatos": sulfatos, "fluoreto": fluoreto, "cianeto": cianeto,
+                "cloretos": cloreto, "alcalinidade": alcalinidade, "dureza": dureza,
+                "oleos": oleos, "fenois": fenoIs, "surfactantes": surfactantes,
+                "cot": cot, "benzeno": benzeno, "tolueno": tolueno,
+                "xileno": xileno, "thm": thm,
+                "pesticidas": pesticidas, "herbicidas": herbicidas,
+                "toxicidade_aguda": tox_aguda, "toxicidade_cronica": tox_cronica,
+                "iqa": iqa, "iet": iet, "data": str(datetime.now())
             }
     
-    col_b1, col_b2 = st.columns([1, 1])
-    with col_b1:
-        if len(st.session_state.analises_temp) < 10 and st.button("➕ Adicionar outro ponto"):
+    # Botões de adicionar/remover pontos
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("➕ Adicionar outro ponto de coleta"):
             st.session_state.analises_temp.append({})
             st.rerun()
-    with col_b2:
+    with col_btn2:
         if len(st.session_state.analises_temp) > 1 and st.button("➖ Remover último ponto"):
             st.session_state.analises_temp.pop()
             st.rerun()
     
     st.divider()
-    if st.button("💾 Salvar todas as análises básicas", type="primary"):
+    if st.button("💾 Salvar todas as análises", type="primary"):
         st.session_state.dados_app["analises"] = st.session_state.analises_temp
-        st.success(f"{len(st.session_state.analises_temp)} ponto(s) salvo(s) com sucesso!")
+        st.success(f"✅ {len(st.session_state.analises_temp)} ponto(s) salvo(s)!")
+        st.info("📌 A classificação será atualizada na aba 'Relatório'.")
 
 
-#Bloco 4 - Aba 3: Análises Avançadas
-def aba_analises_avancadas():
-    st.header("🔬 3. Análises Avançadas de Qualidade da Água")
-    st.caption("Parâmetros complementares - Metais, Toxicidade, Microcontaminantes (CONAMA 357/2005 e Portaria 888/2021)")
-    
-    num_pontos = len(st.session_state.analises_avancadas_temp)
-    if num_pontos == 0:
-        num_pontos = 1
-        st.session_state.analises_avancadas_temp = [{}]
-    
-    for i in range(num_pontos):
-        with st.expander(f"🔬 Parâmetros Avançados - Ponto {i+1}", expanded=(i == num_pontos-1)):
-            
-            ponto_ref = st.text_input(f"Referência do ponto", key=f"ref_av_{i}",
-                                      value=st.session_state.analises_avancadas_temp[i].get("ponto_ref", f"Ponto {i+1}"))
-            
-            st.markdown("---")
-            st.markdown("### 🦠 Indicadores Microbiológicos")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                densidade_ciano = st.number_input(f"Densidade de Cianobactérias (cel/mL)", key=f"ciano_{i}",
-                                                  value=float(st.session_state.analises_avancadas_temp[i].get("densidade_ciano", 0)), step=100.0)
-                enterococos = st.number_input(f"Enterococos (NMP/100mL)", key=f"enter_{i}",
-                                             value=int(st.session_state.analises_avancadas_temp[i].get("enterococos", 0)), step=10)
-            
-            with col2:
-                toxicidade_aguda = st.selectbox(f"Toxicidade Aguda", ["Não detectada", "Detectada", "Não analisado"],
-                                               key=f"tox_ag_{i}")
-                toxicidade_cronica = st.selectbox(f"Toxicidade Crônica", ["Não detectada", "Detectada", "Não analisado"],
-                                                 key=f"tox_cr_{i}")
-            
-            st.markdown("---")
-            st.markdown("### 🧪 Ânions e Parâmetros Inorgânicos")
-            col3, col4 = st.columns(2)
-            
-            with col3:
-                sulfatos = st.number_input(f"Sulfatos (mg/L SO₄)", key=f"sulf_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("sulfatos", 50.0)), step=10.0)
-                fluoreto = st.number_input(f"Fluoreto (mg/L F)", key=f"fluor_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("fluoreto", 0.5)), step=0.1)
-                cianeto = st.number_input(f"Cianeto (mg/L CN)", key=f"cn_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("cianeto", 0.0)), step=0.01)
-            
-            with col4:
-                cloro_residual = st.number_input(f"Cloro Residual Livre (mg/L Cl)", key=f"cloro_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("cloro_residual", 0.0)), step=0.1)
-                salinidade = st.number_input(f"Salinidade (PSU)", key=f"salin_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("salinidade", 0.0)), step=0.1)
-            
-            st.markdown("---")
-            st.markdown("### 💧 Metais Pesados e Tóxicos")
-            col5, col6 = st.columns(2)
-            
-            with col5:
-                ferro = st.number_input(f"Ferro Total (mg/L Fe)", key=f"fe_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("ferro", 0.3)), step=0.1)
-                manganes = st.number_input(f"Manganês (mg/L Mn)", key=f"mn_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("manganes", 0.1)), step=0.05)
-                aluminio = st.number_input(f"Alumínio (mg/L Al)", key=f"al_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("aluminio", 0.1)), step=0.05)
-                zinco = st.number_input(f"Zinco (mg/L Zn)", key=f"zn_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("zinco", 0.05)), step=0.01)
-                cobre = st.number_input(f"Cobre (mg/L Cu)", key=f"cu_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("cobre", 0.01)), step=0.01)
-            
-            with col6:
-                chumbo = st.number_input(f"Chumbo (mg/L Pb)", key=f"pb_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("chumbo", 0.001)), step=0.001, format="%.4f")
-                cadmio = st.number_input(f"Cádmio (mg/L Cd)", key=f"cd_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("cadmio", 0.0005)), step=0.0005, format="%.4f")
-                mercurio = st.number_input(f"Mercúrio (mg/L Hg)", key=f"hg_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("mercurio", 0.0001)), step=0.0001, format="%.4f")
-                arsenio = st.number_input(f"Arsênio (mg/L As)", key=f"as_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("arsenio", 0.001)), step=0.001, format="%.4f")
-                cromo = st.number_input(f"Cromo Total (mg/L Cr)", key=f"cr_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("cromo", 0.01)), step=0.01)
-            
-            st.markdown("---")
-            st.markdown("### 🧴 Compostos Orgânicos")
-            col7, col8 = st.columns(2)
-            
-            with col7:
-                oleos_graxas = st.number_input(f"Óleos e Graxas (mg/L)", key=f"oleo_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("oleos_graxas", 0.0)), step=0.5)
-                benzeno = st.number_input(f"Benzeno (µg/L)", key=f"benz_{i}", value=float(st.session_state.analises_avancadas_temp[i].get("benzeno", 0.0)), step=1.0)
-            
-            with col8:
-                pesticidas = st.text_input(f"Pesticidas", key=f"pest_{i}", 
-                                          value=st.session_state.analises_avancadas_temp[i].get("pesticidas", "Não detectado"))
-            
-            st.markdown("---")
-            st.markdown("### 📊 Índices Integradores")
-            col9, col10 = st.columns(2)
-            
-            with col9:
-                iqa = st.number_input(f"IQA (0-100)", key=f"iqa_{i}",
-                                     value=float(st.session_state.analises_avancadas_temp[i].get("iqa", 70.0)), step=1.0, min_value=0.0, max_value=100.0)
-            
-            with col10:
-                iet = st.selectbox(f"IET", ["Ultraoligotrófico", "Oligotrófico", "Mesotrófico", "Eutrófico", "Hipereutrófico", "Não calculado"],
-                                  key=f"iet_{i}")
-            
-            st.session_state.analises_avancadas_temp[i] = {
-                "ponto_ref": ponto_ref,
-                "densidade_ciano": densidade_ciano, "enterococos": enterococos,
-                "toxicidade_aguda": toxicidade_aguda, "toxicidade_cronica": toxicidade_cronica,
-                "sulfatos": sulfatos, "fluoreto": fluoreto, "cianeto": cianeto,
-                "cloro_residual": cloro_residual, "salinidade": salinidade,
-                "ferro": ferro, "manganes": manganes, "aluminio": aluminio,
-                "zinco": zinco, "cobre": cobre, "chumbo": chumbo,
-                "cadmio": cadmio, "mercurio": mercurio, "arsenio": arsenio, "cromo": cromo,
-                "oleos_graxas": oleos_graxas, "benzeno": benzeno,
-                "pesticidas": pesticidas, "iqa": iqa, "iet": iet
-            }
-    
-    col_b1, col_b2 = st.columns([1, 1])
-    with col_b1:
-        if len(st.session_state.analises_avancadas_temp) < 10 and st.button("➕ Adicionar outro ponto (avançado)"):
-            st.session_state.analises_avancadas_temp.append({})
-            st.rerun()
-    with col_b2:
-        if len(st.session_state.analises_avancadas_temp) > 1 and st.button("➖ Remover último ponto (avançado)"):
-            st.session_state.analises_avancadas_temp.pop()
-            st.rerun()
-    
-    st.divider()
-    if st.button("💾 Salvar análises avançadas", type="primary"):
-        st.session_state.dados_app["analises_avancadas"] = st.session_state.analises_avancadas_temp
-        st.success(f"{len(st.session_state.analises_avancadas_temp)} ponto(s) de análise avançada salvo(s)!")
+# ============================================================
+# ABA 3 - LEVANTAMENTO AMBIENTAL
+# ============================================================
 
-
-#Bloco 5 - Aba 4: Levantamento Ambiental
 def aba_levantamento():
-    st.header("🌍 4. Levantamento de Causas Ambientais")
+    st.header("🌍 3. Levantamento Ambiental")
     
-    lev = st.session_state.dados_app.get("levantamento", {})
+    cad = st.session_state.dados_app.get("cadastro", {})
+    lat = cad.get("lat", -15.0)
+    lon = cad.get("lon", -45.0)
+    
+    if lat and lon and lat != -15.0:
+        st.info(f"📍 Estimando características para coordenadas: {lat}, {lon}")
+        relevo_estimado = estimar_relevo_por_coordenadas(lat, lon)
+        st.write(f"**Relevo estimado:** {relevo_estimado}")
     
     col1, col2 = st.columns(2)
-    
     with col1:
-        st.subheader("Características da Bacia")
-        cobertura_solo = st.selectbox("Cobertura do solo predominante", 
-                                      ["Florestada", "Pastagem", "Agricultura", "Urbana", "Mista"],
-                                      index=["Florestada", "Pastagem", "Agricultura", "Urbana", "Mista"].index(lev.get("cobertura_solo", "Florestada")))
-        
-        tipo_solo = st.selectbox("Tipo de solo predominante",
-                                 ["Argiloso", "Arenoso", "Siltoso", "Latossolo", "Outro"],
-                                 index=["Argiloso", "Arenoso", "Siltoso", "Latossolo", "Outro"].index(lev.get("tipo_solo", "Argiloso")))
-        
-        relevo = st.selectbox("Relevo da região",
-                              ["Plano", "Suave ondulado", "Ondulado", "Montanhoso"],
-                              index=["Plano", "Suave ondulado", "Ondulado", "Montanhoso"].index(lev.get("relevo", "Plano")))
-    
+        cobertura = st.selectbox("Cobertura do solo", ["Florestada", "Pastagem", "Agricultura", "Urbana", "Mista", "Não sei"])
+        tipo_solo = st.selectbox("Tipo de solo", ["Argiloso", "Arenoso", "Siltoso", "Latossolo", "Não sei"])
+        relevo = st.selectbox("Relevo", ["Plano", "Suave ondulado", "Ondulado", "Montanhoso", "Não sei"])
     with col2:
-        st.subheader("Atividades e Impactos")
-        fontes_poluicao = st.multiselect("Fontes de poluição identificadas",
-                                         ["Esgoto doméstico", "Efluente industrial", "Agrotóxicos", "Mineração", "Queimadas", "Assoreamento"],
-                                         default=lev.get("fontes_poluicao", []))
+        fontes = st.multiselect("Fontes de poluição", ["Esgoto", "Agropecuária", "Indústria", "Mineração", "Resíduos sólidos", "Não identificado"])
+        observacoes = st.text_area("Observações", height=100)
     
-    st.subheader("Observações")
-    observacoes = st.text_area("Observações adicionais", value=lev.get("observacoes", ""))
-    
-    st.divider()
     if st.button("💾 Salvar Levantamento", type="primary"):
         st.session_state.dados_app["levantamento"] = {
-            "cobertura_solo": cobertura_solo, "tipo_solo": tipo_solo, "relevo": relevo,
-            "fontes_poluicao": fontes_poluicao, "observacoes": observacoes
+            "cobertura": cobertura, "tipo_solo": tipo_solo, "relevo": relevo,
+            "fontes": fontes, "observacoes": observacoes
         }
-        st.success("Levantamento salvo com sucesso!")
+        st.success("✅ Levantamento salvo!")
 
 
-#Bloco 6 - Aba 5: Mapa de Localização
+# ============================================================
+# ABA 4 - RELATÓRIO
+# ============================================================
+
+def aba_relatorio():
+    st.header("📊 4. Relatório de Classificação")
+    
+    analises = st.session_state.dados_app.get("analises", [])
+    cad = st.session_state.dados_app.get("cadastro", {})
+    lev = st.session_state.dados_app.get("levantamento", {})
+    
+    if not analises:
+        st.warning("Nenhuma análise cadastrada.")
+        return
+    
+    st.subheader(f"📍 {cad.get('corpo_hidrico', 'Corpo Hídrico')} - {cad.get('fazenda', 'Fazenda')}")
+    
+    for i, ponto in enumerate(analises):
+        classe, cor, recomendacoes, params_preenchidos = classificar_ponto_adaptativo(ponto)
+        
+        with st.expander(f"{cor} Ponto {ponto.get('nome', i+1)} - {classe}", expanded=True):
+            st.markdown(f"**Parâmetros preenchidos:** {len(params_preenchidos)}")
+            
+            if classe == "Dados insuficientes":
+                st.warning("⚠️ Dados insuficientes para classificação precisa. Adicione mais parâmetros (mínimo 3).")
+            else:
+                st.success(f"**Classificação:** {classe} {cor}")
+                st.info(f"**Recomendação:** {recomendacoes[0]}")
+            
+            # Mostrar valores preenchidos
+            st.markdown("**Valores medidos:**")
+            valores = {k: v for k, v in ponto.items() if v not in [None, "", 0] and k not in ['nome', 'lat', 'lon', 'data']}
+            if valores:
+                df_valores = pd.DataFrame(list(valores.items()), columns=["Parâmetro", "Valor"])
+                st.dataframe(df_valores, use_container_width=True, hide_index=True)
+    
+    # Recomendações de Manejo
+    st.subheader("🌱 Recomendações de Manejo")
+    
+    if lev:
+        if lev.get("cobertura") == "Agricultura":
+            st.write("🌾 **Agricultura**: Implementar faixas de amortecimento com vegetação nativa entre a lavoura e o corpo d'água.")
+        if lev.get("cobertura") == "Pastagem":
+            st.write("🐄 **Pastagem**: Evitar o acesso direto do gado à água, cercar nascentes e implantar sistemas silvipastoris.")
+        if "Esgoto" in lev.get("fontes", []):
+            st.write("🏠 **Esgoto**: Investir em saneamento básico e tratamento de efluentes antes do lançamento.")
+        if "Agropecuária" in lev.get("fontes", []):
+            st.write("🧪 **Agroquímicos**: Reduzir uso de fertilizantes e defensivos, adotar manejo integrado de pragas.")
+        if "Indústria" in lev.get("fontes", []):
+            st.write("🏭 **Indústria**: Exigir tratamento de efluentes industriais antes do lançamento nos corpos d'água.")
+        if "Mineração" in lev.get("fontes", []):
+            st.write("⛏️ **Mineração**: Implementar sistemas de contenção de rejeitos e monitoramento constante da qualidade da água.")
+    else:
+        st.info("📌 Complete o Levantamento Ambiental para receber recomendações personalizadas.")
+
+
+# ============================================================
+# ABA 5 - MAPA
+# ============================================================
+
 def aba_mapa():
     st.header("🗺️ 5. Mapa de Localização")
     
-    st.info("🔑 **Configuração da Chave API Google Maps:** No código, procure por `CHAVE_API_GOOGLE = \"\"` e insira sua chave entre as aspas.")
-    
-    if CHAVE_API_GOOGLE and CHAVE_API_GOOGLE.strip():
-        st.success("✅ Chave do Google Maps configurada! Usando camadas do Google.")
-    else:
-        st.info("ℹ️ Usando OpenStreetMap. Para usar Google Maps, insira sua chave na variável CHAVE_API_GOOGLE no código.")
-    
     cad = st.session_state.dados_app.get("cadastro", {})
-    fazenda_coords = (cad.get("fazenda_lat", -15.0), cad.get("fazenda_lon", -45.0))
-    fazenda_nome = cad.get("fazenda_nome", "Fazenda")
-    corpo_nome = cad.get("corpo_nome", "Corpo hídrico")
     analises = st.session_state.dados_app.get("analises", [])
     
-    m = folium.Map(location=[fazenda_coords[0], fazenda_coords[1]], zoom_start=13, control_scale=True)
+    lat = cad.get("lat", -15.0)
+    lon = cad.get("lon", -45.0)
     
-    folium.Marker(location=[fazenda_coords[0], fazenda_coords[1]],
-                  popup=f"🏠 {fazenda_nome}", icon=folium.Icon(color="green", icon="home", prefix='fa')).add_to(m)
+    if lat == -15.0 and lon == -45.0:
+        st.warning("⚠️ Configure as coordenadas da fazenda na aba 'Cadastro' para visualizar o mapa.")
+        return
     
-    for i, ponto in enumerate(analises):
-        lat = ponto.get("lat")
-        lon = ponto.get("lon")
-        if lat and lon:
-            classe, cor, _, _ = classificar_ponto(ponto)
-            cor_icon = "darkgreen" if "Classe 1" in classe else "orange" if "Classe 2" in classe else "red"
-            folium.Marker(location=[lat, lon], popup=f"{ponto.get('nome', f'Ponto {i+1}')}<br>Classe: {classe}",
-                          icon=folium.Icon(color=cor_icon, icon="water", prefix='fa')).add_to(m)
+    m = folium.Map(location=[lat, lon], zoom_start=13, control_scale=True)
     
+    # Marcador da fazenda
+    folium.Marker(
+        [lat, lon], 
+        popup=f"🏠 {cad.get('fazenda', 'Fazenda')}",
+        icon=folium.Icon(color="green", icon="home", prefix='fa')
+    ).add_to(m)
+    
+    # Pontos de coleta
+    for ponto in analises:
+        if ponto.get("lat") and ponto.get("lon") and ponto.get("lat") != -15.0:
+            folium.Marker(
+                [ponto["lat"], ponto["lon"]], 
+                popup=f"📌 {ponto.get('nome', 'Ponto')}<br>Data: {ponto.get('data', 'N/A')}",
+                icon=folium.Icon(color="blue", icon="water", prefix='fa')
+            ).add_to(m)
+    
+    # Adicionar Google Maps se tiver chave
     if CHAVE_API_GOOGLE and CHAVE_API_GOOGLE.strip():
         try:
-            folium.TileLayer(tiles=f"https://mt1.google.com/vt/lyrs=m&x={{x}}&y={{y}}&z={{z}}&key={CHAVE_API_GOOGLE}",
-                             attr="Google Maps", name="Google Maps", control=True).add_to(m)
+            folium.TileLayer(
+                f"https://mt1.google.com/vt/lyrs=m&x={{x}}&y={{y}}&z={{z}}&key={CHAVE_API_GOOGLE}",
+                attr="Google Maps",
+                name="Google Maps",
+                control=True
+            ).add_to(m)
+            folium.TileLayer(
+                f"https://mt1.google.com/vt/lyrs=s&x={{x}}&y={{y}}&z={{z}}&key={CHAVE_API_GOOGLE}",
+                attr="Google Satélite",
+                name="Google Satélite",
+                control=True
+            ).add_to(m)
         except Exception as e:
-            st.warning(f"Erro ao adicionar Google Maps: {e}")
+            pass
     
     folium.LayerControl().add_to(m)
     st_folium(m, width=900, height=500)
     
-    if analises:
-        df_pontos = pd.DataFrame([{"Ponto": p.get("nome", f"Ponto {i+1}"), "Latitude": p.get("lat"), "Longitude": p.get("lon")} 
-                                  for i, p in enumerate(analises) if p.get("lat")])
-        st.dataframe(df_pontos, use_container_width=True)
+    # Estatísticas
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("📍 Pontos de Coleta", len(analises))
+    with col2:
+        st.metric("🏠 Fazenda", cad.get("fazenda", "Não cadastrada"))
 
 
-#Bloco 7 - Aba 6: Relatório de Classificação
-def aba_relatorio():
-    st.header("📊 6. Relatório de Classificação da Qualidade da Água")
-    
-    analises = st.session_state.dados_app.get("analises", [])
-    if not analises:
-        st.warning("Nenhuma análise cadastrada.")
-        return
-    
-    pontos_classificados = []
-    for ponto in analises:
-        classe, cor, usos, motivos = classificar_ponto(ponto)
-        pontos_classificados.append((ponto.get("nome", "Ponto"), classe, cor, usos, motivos))
-    
-    status_geral, cor_geral, _ = avaliar_trecho(pontos_classificados)
-    
-    st.subheader(f"Classificação Geral - {status_geral} {cor_geral}")
-    
-    for nome, classe, cor, usos, motivos in pontos_classificados:
-        with st.expander(f"{cor} {nome} - {classe}"):
-            st.write("**Usos recomendados:**", usos[0] if usos else "N/A")
-            if motivos:
-                st.write("**Fatores:**", ", ".join(motivos[:2]))
+# ============================================================
+# FUNÇÃO PRINCIPAL
+# ============================================================
 
-
-#Bloco 8 - Aba 7: Manejos e Usos
-def aba_manejos():
-    st.header("🌱 7. Possíveis Manejos e Usos da Água")
-    
-    analises = st.session_state.dados_app.get("analises", [])
-    levantamento = st.session_state.dados_app.get("levantamento", {})
-    
-    if not analises:
-        st.warning("Nenhuma análise cadastrada.")
-        return
-    
-    pontos_classificados = []
-    for ponto in analises:
-        classe, _, usos, _ = classificar_ponto(ponto)
-        pontos_classificados.append((ponto.get("nome", "Ponto"), classe, None, usos, []))
-    
-    status_geral, _, _ = avaliar_trecho(pontos_classificados)
-    recomendacoes = gerar_recomendacoes_manejo(levantamento, status_geral, analises)
-    
-    st.subheader("Recomendações de Manejo")
-    for rec in recomendacoes:
-        st.markdown(rec)
-    
-    st.divider()
-    st.subheader("Usos Possíveis por Ponto")
-    usos_por_ponto = usos_possiveis_agua(pontos_classificados)
-    for ponto, lista_usos in usos_por_ponto.items():
-        with st.expander(f"📌 {ponto}"):
-            for uso in lista_usos:
-                st.write(uso)
-
-
-#Bloco 9 - Função principal (main)
 def main():
     st.sidebar.title("💧 Sistema de Qualidade da Água")
     st.sidebar.markdown("---")
     
-    # Verificar cadastro para liberar abas
-    if not st.session_state.cadastro_completo and cadastro_esta_completo():
-        st.session_state.cadastro_completo = True
+    # Informação da chave API
+    if not CHAVE_API_GOOGLE:
+        st.sidebar.warning("🔑 **Chave API não configurada!**")
+        st.sidebar.caption("Para usar o mapa com Google Maps e estimar relevo, insira sua chave na variável `CHAVE_API_GOOGLE` no início do código.")
     
     if not st.session_state.cadastro_completo:
-        st.sidebar.warning("⚠️ Complete o cadastro na aba **Cadastro** para acessar as demais funcionalidades.")
-        abas_disponiveis = ["📋 Cadastro"]
+        st.sidebar.warning("⚠️ Complete o cadastro primeiro!")
+        abas = ["📋 Cadastro"]
     else:
-        abas_disponiveis = ["📋 Cadastro", "🧪 Análises Básicas", "🔬 Análises Avançadas", "🌍 Levantamento", "🗺️ Mapa", "📊 Relatório", "🌱 Manejos e Usos"]
+        abas = ["📋 Cadastro", "🧪 Análises", "🌍 Levantamento", "📊 Relatório", "🗺️ Mapa"]
     
-    aba_selecionada = st.sidebar.radio("Navegação", abas_disponiveis)
+    aba = st.sidebar.radio("📌 Navegação", abas)
     
-    if aba_selecionada == "📋 Cadastro":
+    if aba == "📋 Cadastro":
         aba_cadastro()
-    elif aba_selecionada == "🧪 Análises Básicas":
+    elif aba == "🧪 Análises":
         aba_analises()
-    elif aba_selecionada == "🔬 Análises Avançadas":
-        aba_analises_avancadas()
-    elif aba_selecionada == "🌍 Levantamento":
+    elif aba == "🌍 Levantamento":
         aba_levantamento()
-    elif aba_selecionada == "🗺️ Mapa":
-        aba_mapa()
-    elif aba_selecionada == "📊 Relatório":
+    elif aba == "📊 Relatório":
         aba_relatorio()
-    elif aba_selecionada == "🌱 Manejos e Usos":
-        aba_manejos()
+    elif aba == "🗺️ Mapa":
+        aba_mapa()
     
     st.sidebar.markdown("---")
-    st.sidebar.caption("Leis base: CONAMA 357/2005, Portaria 888/2021")
+    st.sidebar.caption("📜 **Legislação aplicável:**")
+    st.sidebar.caption("- CONAMA 357/2005")
+    st.sidebar.caption("- Portaria 888/2021")
+    st.sidebar.caption("- Lei 9.433/1997")
 
 
 if __name__ == "__main__":
