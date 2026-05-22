@@ -13,9 +13,10 @@ st.set_page_config(page_title="Sistema de Qualidade da Água", page_icon="💧",
 # ============================================================
 # 🔑 CONFIGURAÇÕES - ÚNICO LUGAR QUE VOCÊ PRECISA ALTERAR
 # ============================================================
-CHAVE_API_GOOGLE = "AIzaSyAkj0m6HFJxX9hGNopoUiUxWDgPJrMkQww"  # COLE SUA CHAVE DO GOOGLE MAPS AQUI (opcional)
+CHAVE_API_GOOGLE = "AIzaSyCTxigR9iKvTHBo0yh14l7QSsnCAlMv0LA"  # COLE SUA CHAVE DO GOOGLE MAPS AQUI (opcional)
 USAR_OPEN_TOPODATA = True  # API gratuita para elevação (recomendado)
 # ============================================================
+
 # ============================================================================
 # FUNÇÕES PARA CONVERSÃO DE COORDENADAS (GRAUS DECIMAIS <-> GMS)
 # ============================================================================
@@ -25,17 +26,10 @@ def decimal_para_gms(valor_decimal):
     if valor_decimal is None:
         return (0, 0, 0.0)
     
-    # Pega o valor absoluto
     valor_abs = abs(valor_decimal)
-    
-    # Calcula graus
     graus = int(valor_abs)
-    
-    # Calcula minutos
     minutos_restantes = (valor_abs - graus) * 60
     minutos = int(minutos_restantes)
-    
-    # Calcula segundos
     segundos = (minutos_restantes - minutos) * 60
     segundos = round(segundos, 2)
     
@@ -48,7 +42,12 @@ def gms_para_decimal(graus, minutos, segundos, direcao):
     if direcao in ["S", "O", "W"]:
         valor_decimal = -valor_decimal
     return valor_decimal
-# Inicialização da sessão
+
+
+# ============================================================================
+# INICIALIZAÇÃO DA SESSÃO
+# ============================================================================
+
 if 'cadastro_completo' not in st.session_state:
     st.session_state.cadastro_completo = False
 if 'dados_app' not in st.session_state:
@@ -125,7 +124,6 @@ def estimar_cobertura_solo_por_coordenadas(lat, lon):
     Estimativa aproximada de cobertura do solo baseada em biomas brasileiros
     (MapBiomas simplificado - sem chave)
     """
-    # Biomas aproximados por coordenadas (valores de referência)
     if -33 < lat < -4 and -74 < lon < -34:
         if lat < -15 and lon < -45:
             return "Campo/Agricultura (Região Sul)"
@@ -372,74 +370,6 @@ def gerar_recomendacoes_manejo(levantamento, classificacao, analises):
     return recomendacoes
 
 
-# ========== COORDENADAS EM GRAUS, MINUTOS E SEGUNDOS ==========
-st.markdown("**🗺️ Coordenadas Geográficas (Graus, Minutos, Segundos)**")
-                        
- # Recuperar valores existentes ou usar padrão
-lat_decimal = float(st.session_state.dados_app.get("cadastro", {}).get("fazenda_lat", -15.0))
-                       
-lon_decimal = float(st.session_state.dados_app.get("cadastro", {}).get("fazenda_lon", -45.0))
-                        
-                        
-# Converter para GMS
-                        
-lat_graus, lat_minutos, lat_segundos = decimal_para_gms(lat_decimal)
-                       
-lon_graus, lon_minutos, lon_segundos = decimal_para_gms(lon_decimal)
-                        
-                        
-# Latitude
-                       
-st.markdown("**Latitude:**")
-                        
-col_lat1, col_lat2, col_lat3, col_lat4 = st.columns([1, 1, 1, 1])
-                        
-with col_lat1:
-                            
-    lat_graus_input = st.number_input("Graus", min_value=0, max_value=90, value=lat_graus, step=1, key="lat_graus")
-                        
-    with col_lat2:
-                            
-        lat_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lat_minutos, step=1, key="lat_minutos")
-                        
-        with col_lat3:
-                            
-            # CORRIGIDO: value agora é int convertido para float
-                            
-            lat_segundos_val = float(lat_segundos)
-                            
-            lat_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=lat_segundos_val, step=0.01, format="%.2f", key="lat_segundos")
-                        
-            with col_lat4:
-                            
-                lat_direcao = st.selectbox("Direção", ["S", "N"], index=0 if lat_decimal < 0 else 1, key="lat_direcao")
-                        
-                        
-# Longitude
-                        
-st.markdown("**Longitude:**")
-                        
-col_lon1, col_lon2, col_lon3, col_lon4 = st.columns([1, 1, 1, 1])
-                        
-with col_lon1:
-                            
-    lon_graus_input = st.number_input("Graus", min_value=0, max_value=180, value=lon_graus, step=1, key="lon_graus")
-                        
-with col_lon2:
-                            
-    lon_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lon_minutos, step=1, key="lon_minutos")
-                        
-with col_lon3:
-# CORRIGIDO: value agora é int convertido para float
-                            
-    lon_segundos_val = float(lon_segundos)
-                            
-    lon_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=lon_segundos_val, step=0.01, format="%.2f", key="lon_segundos")
-                       
-with col_lon4:
-    lon_direcao = st.selectbox("Direção", ["O", "L"], index=0 if lon_decimal < 0 else 1, key="lon_direcao")
-
-
 # ============================================================================
 # ABA 1 - CADASTRO
 # ============================================================================
@@ -480,25 +410,25 @@ def aba_cadastro():
         st.markdown("**Latitude:**")
         col_lat1, col_lat2, col_lat3, col_lat4 = st.columns([1, 1, 1, 1])
         with col_lat1:
-            lat_graus_input = st.number_input("Graus", min_value=0, max_value=90, value=lat_graus, key="lat_graus")
+            lat_graus_input = st.number_input("Graus", min_value=0, max_value=90, value=lat_graus, step=1)
         with col_lat2:
-            lat_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lat_minutos, key="lat_minutos")
+            lat_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lat_minutos, step=1)
         with col_lat3:
-            lat_segundos_input = st.number_input("Segundos", min_value=0, max_value=59, value=float(lat_segundos), step=0.01, format="%.2f", key="lat_segundos")
+            lat_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=float(lat_segundos), step=0.01, format="%.2f")
         with col_lat4:
-            lat_direcao = st.selectbox("Direção", ["S", "N"], index=0 if lat_decimal < 0 else 1, key="lat_direcao")
+            lat_direcao = st.selectbox("Direção", ["S", "N"], index=0 if lat_decimal < 0 else 1)
         
         # Longitude
         st.markdown("**Longitude:**")
         col_lon1, col_lon2, col_lon3, col_lon4 = st.columns([1, 1, 1, 1])
         with col_lon1:
-            lon_graus_input = st.number_input("Graus", min_value=0, max_value=180, value=lon_graus, key="lon_graus")
+            lon_graus_input = st.number_input("Graus", min_value=0, max_value=180, value=lon_graus, step=1)
         with col_lon2:
-            lon_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lon_minutos, key="lon_minutos")
+            lon_minutos_input = st.number_input("Minutos", min_value=0, max_value=59, value=lon_minutos, step=1)
         with col_lon3:
-            lon_segundos_input = st.number_input("Segundos", min_value=0, max_value=59, value=float(lon_segundos), step=0.01, format="%.2f", key="lon_segundos")
+            lon_segundos_input = st.number_input("Segundos", min_value=0.0, max_value=59.99, value=float(lon_segundos), step=0.01, format="%.2f")
         with col_lon4:
-            lon_direcao = st.selectbox("Direção", ["O", "L"], index=0 if lon_decimal < 0 else 1, key="lon_direcao")
+            lon_direcao = st.selectbox("Direção", ["O", "L"], index=0 if lon_decimal < 0 else 1)
         
         # Converter GMS de volta para decimal para salvar
         fazenda_lat = gms_para_decimal(lat_graus_input, lat_minutos_input, lat_segundos_input, lat_direcao)
@@ -546,6 +476,7 @@ def aba_cadastro():
             else:
                 st.session_state.cadastro_completo = False
                 st.warning("⚠️ **Cadastro incompleto!** Preencha todos os campos com *.")
+
 
 # ============================================================
 # ABA 2 - ANÁLISES BÁSICAS
