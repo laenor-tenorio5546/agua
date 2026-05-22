@@ -16,7 +16,38 @@ st.set_page_config(page_title="Sistema de Qualidade da Água", page_icon="💧",
 CHAVE_API_GOOGLE = "AIzaSyAkj0m6HFJxX9hGNopoUiUxWDgPJrMkQww"  # COLE SUA CHAVE DO GOOGLE MAPS AQUI (opcional)
 USAR_OPEN_TOPODATA = True  # API gratuita para elevação (recomendado)
 # ============================================================
+# ============================================================================
+# FUNÇÕES PARA CONVERSÃO DE COORDENADAS (GRAUS DECIMAIS <-> GMS)
+# ============================================================================
 
+def decimal_para_gms(valor_decimal):
+    """Converte coordenadas de graus decimais para Graus, Minutos e Segundos"""
+    if valor_decimal is None:
+        return (0, 0, 0.0)
+    
+    # Pega o valor absoluto
+    valor_abs = abs(valor_decimal)
+    
+    # Calcula graus
+    graus = int(valor_abs)
+    
+    # Calcula minutos
+    minutos_restantes = (valor_abs - graus) * 60
+    minutos = int(minutos_restantes)
+    
+    # Calcula segundos
+    segundos = (minutos_restantes - minutos) * 60
+    segundos = round(segundos, 2)
+    
+    return (graus, minutos, segundos)
+
+
+def gms_para_decimal(graus, minutos, segundos, direcao):
+    """Converte coordenadas de GMS para graus decimais"""
+    valor_decimal = graus + (minutos / 60) + (segundos / 3600)
+    if direcao in ["S", "O", "W"]:
+        valor_decimal = -valor_decimal
+    return valor_decimal
 # Inicialização da sessão
 if 'cadastro_completo' not in st.session_state:
     st.session_state.cadastro_completo = False
