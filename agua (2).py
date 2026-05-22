@@ -1,4 +1,4 @@
-#Bloco 0 - Verificação e instalação automática de dependências
+#Bloco 0 - Verificação e instalação automática de dependênciass
 import subprocess
 import sys
 import importlib
