@@ -13,7 +13,7 @@ st.set_page_config(page_title="Sistema de Qualidade da Água", page_icon="💧",
 # ============================================================
 # 🔑 CONFIGURAÇÕES - ÚNICO LUGAR QUE VOCÊ PRECISA ALTERAR
 # ============================================================
-CHAVE_API_GOOGLE = ""  # COLE SUA CHAVE DO GOOGLE MAPS AQUI (opcional)
+CHAVE_API_GOOGLE = "AIzaSyCbBzrvMUD8EZLO7v9EoYM9jiTmDDvDs9I"  # COLE SUA CHAVE DO GOOGLE MAPS AQUI (opcional)
 USAR_OPEN_TOPODATA = True  # API gratuita para elevação (recomendado)
 # ============================================================
 
