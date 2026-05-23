@@ -1,4 +1,5 @@
-import streamlit as st
+import st
+reamlit as st
 import pandas as pd
 import numpy as np
 import folium
